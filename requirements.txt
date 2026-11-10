@@ -1,0 +1,8 @@
+streamlit
+opencv-python-headless
+pandas
+mediapipe
+plotly
+fpdf
+streamlit-webrtc
+av
