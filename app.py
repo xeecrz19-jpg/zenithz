@@ -717,9 +717,21 @@ if modo == "Cámara en directo":
                     video_frame_callback=procesador,
                     media_stream_constraints={"video": True, "audio": False},
                     async_processing=True,
-                    # ESTO ES NUEVO: Fuerza la conexión de video a través de los servidores de Google para evitar pantallas negras.
                     rtc_configuration={
-                        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+                        "iceServers": [
+                            {"urls": ["stun:stun.l.google.com:19302"]},
+                            {"urls": ["stun:stun1.l.google.com:19302"]},
+                            {"urls": ["stun:stun.services.mozilla.com"]},
+                            {
+                                "urls": [
+                                    "turn:openrelay.metered.ca:80", 
+                                    "turn:openrelay.metered.ca:443", 
+                                    "turn:openrelay.metered.ca:443?transport=tcp"
+                                ],
+                                "username": "openrelayproject",
+                                "credential": "openrelayproject"
+                            }
+                        ]
                     },
                     video_html_attrs={
                         "style": {
@@ -729,7 +741,6 @@ if modo == "Cámara en directo":
                         }
                     }
                 )
-
             st.markdown("### Control del registro")
             col1, col2 = st.columns(2)
             with col1:
