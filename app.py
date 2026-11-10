@@ -133,7 +133,7 @@ def mostrar_ficha():
 
 
 # =====================================================
-# 4. CONEXIONES DEL ESQUELETO Y MEDIAPIPE
+# 4. CONEXIONES DEL ESQUELETO
 # =====================================================
 
 CONEXIONES = [
@@ -142,6 +142,11 @@ CONEXIONES = [
     (23, 25), (25, 27), (24, 26), (26, 28),
     (27, 29), (29, 31), (28, 30), (30, 32)
 ]
+
+
+# =====================================================
+# 5. MODELO DE MEDIAPIPE
+# =====================================================
 
 def crear_opciones():
     return mp.tasks.vision.PoseLandmarkerOptions(
@@ -159,7 +164,7 @@ def cargar_modelo(ruta):
 
 
 # =====================================================
-# 5. FUNCIONES BIOMECANICAS Y MATEMATICAS
+# 6. FUNCIONES BIOMECANICAS Y MATEMATICAS
 # =====================================================
 
 def punto_visible(punto):
@@ -269,7 +274,7 @@ def dibujar_esqueleto(imagen, puntos, estatura_cm, estatura_norm, y_suelo_px, x_
 
 
 # =====================================================
-# 6. GENERADOR DE REPORTES (PDF)
+# 7. GENERADOR DE REPORTES (PDF)
 # =====================================================
 
 def generar_reporte_pdf(perfil, altura, tiempo, potencia, potencia_rel, rodilla, cadera, diagnostico):
@@ -330,7 +335,7 @@ def generar_reporte_pdf(perfil, altura, tiempo, potencia, potencia_rel, rodilla,
 
 
 # =====================================================
-# 7. PROCESAMIENTO EN DIRECTO Y VIDEO
+# 8. PROCESAMIENTO EN DIRECTO Y VIDEO
 # =====================================================
 
 def crear_procesador(modelo, registro, vista_frontal, estatura_cm):
@@ -496,7 +501,7 @@ def analizar_video(archivo, vista_frontal, estatura_cm):
 
 
 # =====================================================
-# 8. MOSTRAR RESULTADOS FINALES Y DASHBOARD
+# 9. MOSTRAR RESULTADOS FINALES Y DASHBOARD
 # =====================================================
 
 def mostrar_resultados(df, nombre):
@@ -669,7 +674,7 @@ def mostrar_resultados(df, nombre):
 
 
 # =====================================================
-# 9. PANTALLA INICIAL Y PANEL PRINCIPAL
+# 10. PANTALLA INICIAL Y PANEL PRINCIPAL
 # =====================================================
 
 if not st.session_state.ficha_completa:
@@ -695,7 +700,7 @@ vista_frontal = (st.session_state.perfil_evaluacion.get("Perspectiva de cámara"
 estatura_cm_actual = st.session_state.perfil_evaluacion.get("Estatura (cm)", 161)
 
 # =====================================================
-# 10. EVALUACION CON CAMARA Y CONFIGURACION WEBRTC
+# 11. EVALUACION CON CAMARA Y WEBRTC SEGURO (STUN/TURN)
 # =====================================================
 
 if modo == "Cámara en directo":
@@ -741,6 +746,7 @@ if modo == "Cámara en directo":
                         }
                     }
                 )
+
             st.markdown("### Control del registro")
             col1, col2 = st.columns(2)
             with col1:
@@ -788,7 +794,7 @@ if modo == "Cámara en directo":
 
 
 # =====================================================
-# 11. EVALUACION CON VIDEO
+# 12. EVALUACION CON VIDEO
 # =====================================================
 
 elif modo == "Subir video grabado":
@@ -832,4 +838,3 @@ st.info(
     "proyectando una grilla espacial en pantalla calibrada a la estatura del sujeto."
 )
 st.caption("zenithz | Herramienta de Ciencias del Deporte") 
-
