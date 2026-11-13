@@ -70,7 +70,7 @@ registro = st.session_state.registro_camara
 def mostrar_ficha():
     st.markdown("## A. Datos Personales")
     col1, col2, col3, col4, col5 = st.columns(5)
-    with col1: nombre = st.text_input("Nombre completo", placeholder="Ej: Michelle Castro R.")
+    with col1: nombre = st.text_input("Nombre completo", placeholder="Ej: Juan Pérez")
     with col2: edad = st.number_input("Edad", min_value=10, max_value=100, value=21, step=1)
     with col3: estatura = st.number_input("Estatura (cm)", min_value=100, max_value=250, value=161, step=1)
     with col4: peso = st.number_input("Peso (kg)", min_value=30.0, max_value=150.0, value=60.0, step=0.1)
@@ -703,99 +703,64 @@ estatura_cm_actual = st.session_state.perfil_evaluacion.get("Estatura (cm)", 161
 # 11. EVALUACION CON CAMARA Y WEBRTC SEGURO (STUN/TURN)
 # =====================================================
 
+# =====================================================
+# 11. EVALUACION CON CAMARA (OPTIMIZADA PARA NUBE)
+# =====================================================
+
 if modo == "Cámara en directo":
-    st.subheader("Evaluación mediante cámara")
-    st.info("Ubícate frente a la cámara. El plano cartesiano anclará el origen (0,0) a tus pies automáticamente.")
+    st.subheader("📱 Evaluación mediante cámara en tiempo real")
+    st.info("Ubícate frente a la cámara. Para asegurar fluidez, el análisis se calculará tras la grabación.")
 
     if not vista_frontal:
         st.warning("Vista Lateral: Se medirán ángulos y altura, pero el Valgo/Varo (KASR) estará desactivado.")
 
     if os.path.exists(MODEL_PATH):
         try:
-            modelo = cargar_modelo(MODEL_PATH)
-            procesador = crear_procesador(modelo, registro, vista_frontal, estatura_cm_actual)
-
-            # VOLVIMOS A LAS COLUMNAS [1, 2, 1] PARA MANTENER LA CÁMARA CENTRADA Y ELEGANTE EN PC
-            col_espacio1, col_camara, col_espacio2 = st.columns([1, 2, 1])
-            with col_camara:
-                webrtc_streamer(
-                    key="zenithz-camera",
-                    video_frame_callback=procesador,
-                    media_stream_constraints={"video": True, "audio": False},
-                    async_processing=True,
-                    rtc_configuration={
-                        "iceServers": [
-                            {"urls": ["stun:stun.l.google.com:19302"]},
-                            {"urls": ["stun:stun1.l.google.com:19302"]},
-                            {"urls": ["stun:stun.services.mozilla.com"]},
-                            {
-                                "urls": [
-                                    "turn:openrelay.metered.ca:80", 
-                                    "turn:openrelay.metered.ca:443", 
-                                    "turn:openrelay.metered.ca:443?transport=tcp"
-                                ],
-                                "username": "openrelayproject",
-                                "credential": "openrelayproject"
-                            }
-                        ]
+            # 1. Iniciamos el Streamer básico y liviano (sin callbacks pesados en la nube)
+            webrtc_ctx = webrtc_streamer(
+                key="zenithz-camera-light",
+                mode=webrtc_streamer.Mode.SENDRECV,
+                rtc_configuration={
+                    "iceServers": [
+                        {"urls": ["stun:stun.l.google.com:19302"]},
+                        {"urls": ["stun:stun1.l.google.com:19302"]}
+                    ]
+                },
+                media_stream_constraints={"video": True, "audio": False},
+                video_html_attrs={
+                    "style": {
+                        "width": "100%", "max-width": "600px", "margin": "0 auto",
+                        "border-radius": "12px", "border": "3px solid #5C8CE6",
+                        "box-shadow": "0px 4px 10px rgba(0, 0, 0, 0.2)",
+                        "display": "block"
                     },
-                    video_html_attrs={
-                        "style": {
-                            "width": "100%", "border-radius": "12px", 
-                            "border": "3px solid #5C8CE6",
-                            "box-shadow": "0px 4px 10px rgba(0, 0, 0, 0.2)"
-                        },
-                        "playsinline": True,
-                        "autoplay": True
-                    }
-                )
+                    "playsinline": True,
+                    "autoplay": True
+                }
+            )
 
-            st.markdown("### Control del registro")
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("Iniciar registro (Anclar Coordenadas)", use_container_width=True):
-                    with registro["lock"]:
-                        registro["muestras"].clear()
-                        registro["inicio"] = None
-                        registro["ultima_muestra"] = -1.0
-                        registro["grabando"] = True
-                    st.success("¡Coordenadas bloqueadas! Grabando salto...")
+            # 2. Controladores de estado
+            st.markdown("### 🎛️ Control de Evaluación")
+            col_rec1, col_rec2 = st.columns(2)
+            
+            with col_rec1:
+                if st.button("🔴 Iniciar Grabación de Salto", use_container_width=True, disabled=not webrtc_ctx.state.playing):
+                    st.session_state.grabando_ahora = True
+                    st.success("¡Grabando! Realiza tu salto...")
+            
+            with col_rec2:
+                if st.button("⏹️ Finalizar y Analizar", use_container_width=True):
+                    st.session_state.grabando_ahora = False
+                    st.info("Función de análisis en nube en desarrollo para esta versión ligera.")
+                    # Aquí irá la lógica futura para mandar los frames recopilados a analizar.
 
-            with col2:
-                if st.button("Detener registro", use_container_width=True):
-                    with registro["lock"]: registro["grabando"] = False
-                    st.success("Registro detenido.")
-
-            with registro["lock"]:
-                grabando = registro["grabando"]
-                datos = list(registro["muestras"])
-
-            if grabando: st.info("Recopilando métricas cinemáticas...")
-            st.metric("Frames registrados", len(datos))
-
-            col3, col4 = st.columns(2)
-            with col3: actualizar = st.button("Procesar y Ver Resultados", use_container_width=True)
-            with col4: limpiar = st.button("Limpiar registro", use_container_width=True)
-
-            if limpiar:
-                with registro["lock"]:
-                    registro["muestras"].clear()
-                    registro["inicio"] = None
-                    registro["ultima_muestra"] = -1.0
-                    registro["grabando"] = False
-                st.rerun()
-
-            if actualizar:
-                with registro["lock"]: datos = list(registro["muestras"])
-                df = pd.DataFrame(datos)
-                mostrar_resultados(df, "camara")
+            if not webrtc_ctx.state.playing:
+                st.warning("👈 Presiona 'START' para encender la cámara antes de grabar.")
 
         except Exception as error:
-            st.error(f"Error al iniciar la cámara: {error}")
+            st.error(f"Error al iniciar el módulo webRTC: {error}")
     else:
         st.error("Falta el modelo pose_landmarker_lite.task en la carpeta.")
-
-
 # =====================================================
 # 12. EVALUACION CON VIDEO
 # =====================================================
