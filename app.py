@@ -7,6 +7,7 @@ import datetime
 
 import av
 import cv2
+import requests
 import pandas as pd
 import mediapipe as mp
 import streamlit as st
@@ -30,6 +31,43 @@ MODEL_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "pose_landmarker_lite.task"
 )
+
+
+# =====================================================
+# 1.1 SERVIDORES DE CONEXION PARA LA CAMARA EN VIVO (STUN / TURN)
+# =====================================================
+# La cámara en vivo (WebRTC) necesita una ruta de conexión entre tu dispositivo
+# y el servidor. Los servidores STUN funcionan en muchas redes, pero en redes
+# restrictivas (wifi de casa/universidad, algunos planes móviles) hace falta un
+# servidor TURN. Aquí se pide uno a Metered con credenciales guardadas en
+# "Secrets" de Streamlit Cloud (METERED_DOMAIN y METERED_API_KEY).
+
+ICE_SOLO_STUN = [
+    {"urls": ["stun:stun.l.google.com:19302"]},
+    {"urls": ["stun:stun1.l.google.com:19302"]},
+]
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def obtener_ice_servers():
+    """Devuelve (lista_de_servidores, tiene_turn)."""
+    try:
+        dominio = st.secrets["METERED_DOMAIN"]
+        api_key = st.secrets["METERED_API_KEY"]
+    except Exception:
+        return ICE_SOLO_STUN, False
+
+    try:
+        url = f"https://{dominio}/api/v1/turn/credentials?apiKey={api_key}"
+        respuesta = requests.get(url, timeout=8)
+        respuesta.raise_for_status()
+        servidores = respuesta.json()
+        if isinstance(servidores, list) and len(servidores) > 0:
+            return ICE_SOLO_STUN + servidores, True
+    except Exception:
+        pass
+
+    return ICE_SOLO_STUN, False
 
 
 # =====================================================
@@ -113,7 +151,7 @@ def mostrar_ficha():
 
     if st.button("Guardar ficha e iniciar evaluación CMJ", type="primary", use_container_width=True):
         st.session_state.perfil_evaluacion = {
-            "Nombre": nombre, "Edad": edad, 
+            "Nombre": nombre, "Edad": edad,
             "Estatura (cm)": estatura, "Peso (kg)": peso,
             "Fecha de nacimiento": fecha_nacimiento.strftime("%d/%m/%Y") if fecha_nacimiento else "",
             "Experiencia general": experiencia_general, "Competencias": competencias,
@@ -194,22 +232,22 @@ def extraer_metricas(puntos, vista_frontal):
     tobillo_izq, tobillo_der = puntos[27], puntos[28]
     punta_izq, punta_der = puntos[31], puntos[32]
     cabeza = puntos[0]
-    
+
     if not all(punto_visible(p) for p in [hombro_izq, hombro_der, cadera_izq, cadera_der, rodilla_izq, rodilla_der, tobillo_izq, tobillo_der]):
         return None
-        
+
     kasr = calcular_kasr(puntos) if vista_frontal else None
     ang_rodilla_medio = (calcular_angulo(cadera_izq, rodilla_izq, tobillo_izq) + calcular_angulo(cadera_der, rodilla_der, tobillo_der)) / 2.0
     ang_cadera_medio = (calcular_angulo(hombro_izq, cadera_izq, rodilla_izq) + calcular_angulo(hombro_der, cadera_der, rodilla_der)) / 2.0
-    
+
     x_cadera = (cadera_izq.x + cadera_der.x) / 2.0
     y_cadera = (cadera_izq.y + cadera_der.y) / 2.0
-    
+
     y_pie_mas_bajo = max(tobillo_izq.y, tobillo_der.y, punta_izq.y, punta_der.y)
-    
+
     estatura_norm = abs(y_pie_mas_bajo - cabeza.y)
     if estatura_norm < 0.1: estatura_norm = 0.1
-        
+
     return {
         "kasr": kasr,
         "angulo_rodilla": ang_rodilla_medio,
@@ -222,15 +260,15 @@ def extraer_metricas(puntos, vista_frontal):
 
 def dibujar_esqueleto(imagen, puntos, estatura_cm, estatura_norm, y_suelo_px, x_centro_px, trayectoria=None):
     alto, ancho = imagen.shape[:2]
-    
+
     # 1. SISTEMA DE COORDENADAS FIJO
     if estatura_cm and estatura_norm and estatura_norm > 0 and y_suelo_px is not None and x_centro_px is not None:
         pixeles_por_cm = (estatura_norm * alto) / estatura_cm
-        
+
         cv2.line(imagen, (0, y_suelo_px), (ancho, y_suelo_px), (0, 255, 255), 2, lineType=cv2.LINE_AA)
         cv2.line(imagen, (x_centro_px, 0), (x_centro_px, alto), (0, 255, 255), 2, lineType=cv2.LINE_AA)
         cv2.putText(imagen, "(0,0)", (x_centro_px + 5, y_suelo_px - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-        
+
         for cm in range(10, 150, 10):
             y_linea = int(y_suelo_px - (cm * pixeles_por_cm))
             if 0 <= y_linea <= alto:
@@ -239,12 +277,12 @@ def dibujar_esqueleto(imagen, puntos, estatura_cm, estatura_norm, y_suelo_px, x_
 
             x_linea_der = int(x_centro_px + (cm * pixeles_por_cm))
             x_linea_izq = int(x_centro_px - (cm * pixeles_por_cm))
-            
+
             if x_linea_der <= ancho:
                 cv2.line(imagen, (x_linea_der, 0), (x_linea_der, alto), (255, 255, 255), 1, lineType=cv2.LINE_AA)
             if x_linea_izq >= 0:
                 cv2.line(imagen, (x_linea_izq, 0), (x_linea_izq, alto), (255, 255, 255), 1, lineType=cv2.LINE_AA)
-                
+
         x_cadera_px = int((puntos[23].x + puntos[24].x) / 2 * ancho)
         y_cadera_px = int((puntos[23].y + puntos[24].y) / 2 * alto)
         coord_x_cm = (x_cadera_px - x_centro_px) / pixeles_por_cm
@@ -258,18 +296,18 @@ def dibujar_esqueleto(imagen, puntos, estatura_cm, estatura_norm, y_suelo_px, x_
             p1 = (int(trayectoria[i-1][0] * ancho), int(trayectoria[i-1][1] * alto))
             p2 = (int(trayectoria[i][0] * ancho), int(trayectoria[i][1] * alto))
             cv2.line(imagen, p1, p2, (255, 0, 255), 4)
-            
+
     for inicio, final in CONEXIONES:
         p1, p2 = puntos[inicio], puntos[final]
         if punto_visible(p1) and punto_visible(p2):
             cv2.line(imagen, (int(p1.x * ancho), int(p1.y * alto)), (int(p2.x * ancho), int(p2.y * alto)), (0, 255, 0), 3)
-            
+
     for punto in puntos:
         if punto_visible(punto):
             x, y = int(punto.x * ancho), int(punto.y * alto)
             if 0 <= x < ancho and 0 <= y < alto:
                 cv2.circle(imagen, (x, y), 5, (0, 0, 255), -1)
-                
+
     return imagen
 
 
@@ -280,25 +318,25 @@ def dibujar_esqueleto(imagen, puntos, estatura_cm, estatura_norm, y_suelo_px, x_
 def generar_reporte_pdf(perfil, altura, tiempo, potencia, potencia_rel, rodilla, cadera, diagnostico):
     pdf = FPDF()
     pdf.add_page()
-    
+
     # Encabezado Oficial
     pdf.set_font("Arial", "B", 18)
     pdf.cell(200, 10, txt="Reporte Biomecanico CMJ - zenithz", ln=True, align="C")
     pdf.set_font("Arial", "I", 12)
     pdf.cell(200, 8, txt="Universidad Santo Tomas - Ciencias del Deporte", ln=True, align="C")
     pdf.ln(10)
-    
+
     # Datos del Paciente
     pdf.set_font("Arial", "B", 14)
     pdf.set_fill_color(230, 230, 230)
     pdf.cell(0, 10, txt=" 1. Antecedentes del Deportista", ln=True, fill=True)
     pdf.set_font("Arial", "", 12)
-    
+
     nombre_paciente = perfil.get('Nombre', 'Sin nombre')
     pdf.cell(0, 8, txt=f"Nombre: {nombre_paciente}", ln=True)
     pdf.cell(0, 8, txt=f"Edad: {perfil.get('Edad', 'N/A')} anos | Estatura: {perfil.get('Estatura (cm)', 'N/A')} cm | Peso: {perfil.get('Peso (kg)', 'N/A')} kg", ln=True)
     pdf.ln(5)
-    
+
     # Resultados Cinemáticos
     pdf.set_font("Arial", "B", 14)
     pdf.cell(0, 10, txt=" 2. Resultados de Rendimiento (Potencia y Vuelo)", ln=True, fill=True)
@@ -315,7 +353,7 @@ def generar_reporte_pdf(perfil, altura, tiempo, potencia, potencia_rel, rodilla,
     pdf.set_font("Arial", "", 12)
     pdf.cell(0, 8, txt=f"Amplitud Maxima Flexion de Rodilla: {rodilla:.1f} grados", ln=True)
     pdf.cell(0, 8, txt=f"Amplitud Maxima Flexion de Cadera: {cadera:.1f} grados", ln=True)
-    
+
     diag_limpio = diagnostico.replace("🔴", "").replace("🟡", "").replace("🟢", "")
     pdf.cell(0, 8, txt=f"Control Motor Frontal (KASR): {diag_limpio}", ln=True)
     pdf.ln(15)
@@ -324,13 +362,13 @@ def generar_reporte_pdf(perfil, altura, tiempo, potencia, potencia_rel, rodilla,
     pdf.set_font("Arial", "I", 10)
     pdf.set_text_color(100, 100, 100)
     pdf.cell(0, 10, txt=f"Evaluacion generada el {datetime.date.today().strftime('%d/%m/%Y')} mediante zenithz AI.", ln=True, align="C")
-    
+
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
         pdf.output(tmp.name)
         with open(tmp.name, "rb") as f:
             pdf_bytes = f.read()
     os.remove(tmp.name)
-    
+
     return pdf_bytes, nombre_paciente
 
 
@@ -340,8 +378,11 @@ def generar_reporte_pdf(perfil, altura, tiempo, potencia, potencia_rel, rodilla,
 
 def crear_procesador(modelo, registro, vista_frontal, estatura_cm):
     ultimo_timestamp = [0]
-    trayectoria_en_vivo = []
-    ref_fija = {"y_suelo": None, "x_centro": None, "estatura_norm": None}
+    # Estos dos datos viven dentro de "registro" (que está en session_state) para
+    # que NO se pierdan cuando Streamlit vuelve a ejecutar el script, por ejemplo
+    # al apretar "Iniciar registro". Antes se reiniciaban y la grilla se perdía.
+    trayectoria_en_vivo = registro.setdefault("trayectoria", [])
+    ref_fija = registro.setdefault("ref", {"y_suelo": None, "x_centro": None, "estatura_norm": None})
 
     def procesar_frame(frame):
         imagen = frame.to_ndarray(format="bgr24")
@@ -359,14 +400,14 @@ def crear_procesador(modelo, registro, vista_frontal, estatura_cm):
         if resultado.pose_landmarks:
             puntos = resultado.pose_landmarks[0]
             metricas = extraer_metricas(puntos, vista_frontal)
-            
+
             if metricas is not None:
                 trayectoria_en_vivo.append((metricas["x_cadera"], metricas["y_cadera"]))
                 if len(trayectoria_en_vivo) > 45: trayectoria_en_vivo.pop(0)
-                
+
                 curr_y_suelo = int(max(puntos[27].y, puntos[28].y, puntos[31].y, puntos[32].y) * alto)
                 curr_x_centro = int(((puntos[31].x + puntos[32].x) / 2) * ancho)
-                
+
                 with registro["lock"]:
                     if not registro["grabando"]:
                         ref_fija["y_suelo"] = curr_y_suelo
@@ -389,10 +430,10 @@ def crear_procesador(modelo, registro, vista_frontal, estatura_cm):
                             })
                             registro["ultima_muestra"] = tiempo
                             if len(registro["muestras"]) > 3000: registro["muestras"].pop(0)
-                            
+
             imagen = dibujar_esqueleto(
-                imagen, puntos, estatura_cm, 
-                ref_fija["estatura_norm"], ref_fija["y_suelo"], ref_fija["x_centro"], 
+                imagen, puntos, estatura_cm,
+                ref_fija["estatura_norm"], ref_fija["y_suelo"], ref_fija["x_centro"],
                 trayectoria_en_vivo
             )
             cv2.putText(imagen, "SISTEMA ANCLADO (0,0)", (15, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
@@ -421,16 +462,16 @@ def analizar_video(archivo, vista_frontal, estatura_cm):
         fps = captura.get(cv2.CAP_PROP_FPS)
         if not math.isfinite(fps) or fps < 1: fps = 30.0
         total = int(captura.get(cv2.CAP_PROP_FRAME_COUNT))
-        
+
         resultados = []
         trayectoria_historica = []
         frame_pico_salto = None
         min_y_cadera_pico = 999.0
-        
+
         indice = 0
         ultimo_timestamp = -1
         ultima_muestra = -1.0
-        
+
         ref_y_suelo = None
         ref_x_centro = None
         ref_estatura_norm = None
@@ -455,11 +496,11 @@ def analizar_video(archivo, vista_frontal, estatura_cm):
                 if deteccion.pose_landmarks:
                     puntos = deteccion.pose_landmarks[0]
                     metricas = extraer_metricas(puntos, vista_frontal)
-                    
+
                     if metricas is not None:
                         curr_y_suelo = int(max(puntos[27].y, puntos[28].y, puntos[31].y, puntos[32].y) * alto)
                         curr_x_centro = int(((puntos[31].x + puntos[32].x) / 2) * ancho)
-                        
+
                         if frames_calibracion < 10:
                             if ref_y_suelo is None or curr_y_suelo > ref_y_suelo:
                                 ref_y_suelo = curr_y_suelo
@@ -468,7 +509,7 @@ def analizar_video(archivo, vista_frontal, estatura_cm):
                             frames_calibracion += 1
 
                         trayectoria_historica.append((metricas["x_cadera"], metricas["y_cadera"]))
-                        
+
                         tiempo = indice / fps
                         if tiempo - ultima_muestra >= 0.05:
                             resultados.append({
@@ -483,7 +524,7 @@ def analizar_video(archivo, vista_frontal, estatura_cm):
                             ultima_muestra = tiempo
 
                     frame_dibujado = dibujar_esqueleto(frame.copy(), puntos, estatura_cm, ref_estatura_norm, ref_y_suelo, ref_x_centro, trayectoria_historica)
-                    
+
                     if metricas is not None and metricas["y_cadera"] < min_y_cadera_pico:
                         min_y_cadera_pico = metricas["y_cadera"]
                         frame_pico_salto = frame_dibujado.copy()
@@ -518,11 +559,11 @@ def mostrar_resultados(df, nombre):
     peso_kg = st.session_state.perfil_evaluacion.get("Peso (kg)", 60.0)
 
     # METODO: RASTREO ESPACIAL DEL CENTRO DE MASA
-    y_pico_salto = df_clean['Y Cadera'].min() 
+    y_pico_salto = df_clean['Y Cadera'].min()
     estatura_norm_calibrada = df_clean['Estatura Norm'].max()
     factor_conversion = estatura_cm / estatura_norm_calibrada if estatura_norm_calibrada > 0 else 0
     y_cadera_reposo = df_clean['Y Cadera'].iloc[:5].mean()
-    
+
     altura_final = max(0, (y_cadera_reposo - y_pico_salto) * factor_conversion)
     altura_metros = altura_final / 100.0
     tiempo_vuelo_real = math.sqrt((8 * altura_metros) / 9.81) if altura_metros > 0 else 0
@@ -533,7 +574,7 @@ def mostrar_resultados(df, nombre):
 
     idx_profundo = df_clean['Angulo Rodilla'].idxmin()
     flex_max_rodilla = df_clean.loc[idx_profundo, 'Angulo Rodilla']
-    flex_max_cadera = df_clean['Angulo Cadera'].min() 
+    flex_max_cadera = df_clean['Angulo Cadera'].min()
 
     kasr_profundo = df_clean.loc[idx_profundo, 'KASR'] if 'KASR' in df_clean.columns else None
     if pd.isna(kasr_profundo): diagnostico = "No evaluable"
@@ -590,13 +631,13 @@ def mostrar_resultados(df, nombre):
     c4.metric("Alineación Rodillas", diagnostico, "Índice KASR")
     c5.metric("Flexión Máx. Rodilla", f"{flex_max_rodilla:.1f}°", "Amplitud articular")
     c6.metric("Flexión Máx. Cadera", f"{flex_max_cadera:.1f}°", "Cierre de tronco")
-    
+
     st.divider()
-    
+
     # FEEDBACK IA
     st.markdown("### 🧠 Análisis Clínico Automático")
     col_fb1, col_fb2, col_fb3 = st.columns(3)
-    
+
     with col_fb1:
         if flex_max_rodilla < 85:
             st.error("**Técnica Excéntrica:**\n\n⚠️ Flexión excesiva. Bajar a menos de 85° disipa la energía elástica.")
@@ -628,11 +669,11 @@ def mostrar_resultados(df, nombre):
     # DESCARGAS
     st.markdown("### 📑 Exportar Informe del Paciente")
     pdf_bytes, nom_paciente = generar_reporte_pdf(
-        st.session_state.perfil_evaluacion, 
-        altura_final, tiempo_vuelo_real, potencia_watts, potencia_relativa, 
+        st.session_state.perfil_evaluacion,
+        altura_final, tiempo_vuelo_real, potencia_watts, potencia_relativa,
         flex_max_rodilla, flex_max_cadera, diagnostico
     )
-    
+
     col_d1, col_d2 = st.columns(2)
     with col_d1:
         st.download_button(
@@ -652,15 +693,15 @@ def mostrar_resultados(df, nombre):
             mime="text/csv",
             use_container_width=True
         )
-        
+
     st.divider()
 
     st.subheader("Análisis Temporal")
     tab1, tab2, tab3 = st.tabs(["📐 Ángulos Articulares", "🚀 Tracking Vertical", "⚖️ Índice KASR"])
-    
+
     with tab1:
         st.line_chart(df_clean, x="Tiempo (s)", y=["Angulo Rodilla", "Angulo Cadera"], height=350)
-    
+
     with tab2:
         df_plot = df_clean.copy()
         df_plot["Elevación de Cadera"] = -1 * df_plot["Y Cadera"]
@@ -714,34 +755,20 @@ if modo == "Cámara en directo":
         try:
             modelo = cargar_modelo(MODEL_PATH)
             procesador = crear_procesador(modelo, registro, vista_frontal, estatura_cm_actual)
+            ice_servers, tiene_turn = obtener_ice_servers()
 
             col_espacio1, col_camara, col_espacio2 = st.columns([1, 2, 1])
             with col_camara:
-                webrtc_streamer(
+                ctx = webrtc_streamer(
                     key="zenithz-camera",
                     video_frame_callback=procesador,
-                    # Solución de rendimiento: limitamos la captura a 640x480 para no saturar la nube
+                    # Limitamos la captura a 640x480 para no saturar la nube
                     media_stream_constraints={"video": {"width": {"ideal": 640}, "height": {"ideal": 480}}, "audio": False},
                     async_processing=True,
-                    rtc_configuration={
-                        "iceServers": [
-                            {"urls": ["stun:stun.l.google.com:19302"]},
-                            {"urls": ["stun:stun1.l.google.com:19302"]},
-                            {"urls": ["stun:stun.services.mozilla.com"]},
-                            {
-                                "urls": [
-                                    "turn:openrelay.metered.ca:80", 
-                                    "turn:openrelay.metered.ca:443", 
-                                    "turn:openrelay.metered.ca:443?transport=tcp"
-                                ],
-                                "username": "openrelayproject",
-                                "credential": "openrelayproject"
-                            }
-                        ]
-                    },
+                    rtc_configuration={"iceServers": ice_servers},
                     video_html_attrs={
                         "style": {
-                            "width": "100%", "border-radius": "12px", 
+                            "width": "100%", "border-radius": "12px",
                             "border": "3px solid #5C8CE6",
                             "box-shadow": "0px 4px 10px rgba(0, 0, 0, 0.2)"
                         },
@@ -749,6 +776,18 @@ if modo == "Cámara en directo":
                         "autoplay": True
                     }
                 )
+
+                # Mensajes de ayuda cuando la cámara no arranca
+                if ctx.state.signalling and not ctx.state.playing:
+                    st.caption(
+                        "Conectando con la cámara... Si pasan más de 15 segundos, revisa el permiso de "
+                        "cámara del navegador, prueba con datos móviles o usa 'Subir video grabado'."
+                    )
+                if not tiene_turn:
+                    st.caption(
+                        "Aviso: esta app está usando solo servidores STUN. En algunas redes la cámara en vivo "
+                        "puede no conectarse. Si te pasa, usa 'Subir video grabado'."
+                    )
 
             st.markdown("### Control del registro")
             col1, col2 = st.columns(2)
@@ -793,7 +832,7 @@ if modo == "Cámara en directo":
         except Exception as error:
             st.error(f"Error al iniciar la cámara: {error}")
     else:
-        st.error("Falta el modelo pose_landmarker_lite.task en la carpeta.") 
+        st.error("Falta el modelo pose_landmarker_lite.task en la carpeta.")
 # =====================================================
 # 12. EVALUACION CON VIDEO
 # =====================================================
@@ -828,7 +867,7 @@ elif modo == "Subir video grabado":
             st.success("Tracking cinemático finalizado.")
             if resultado["frame"] is not None:
                 st.image(resultado["frame"], channels="BGR", caption="Sistema Cartesiano Anclado al Suelo")
-            
+
             mostrar_resultados(resultado["df"], "video")
 
 st.divider()
