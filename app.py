@@ -715,6 +715,7 @@ if modo == "Cámara en directo":
             modelo = cargar_modelo(MODEL_PATH)
             procesador = crear_procesador(modelo, registro, vista_frontal, estatura_cm_actual)
 
+            # VOLVIMOS A LAS COLUMNAS [1, 2, 1] PARA MANTENER LA CÁMARA CENTRADA Y ELEGANTE EN PC
             col_espacio1, col_camara, col_espacio2 = st.columns([1, 2, 1])
             with col_camara:
                 webrtc_streamer(
@@ -743,7 +744,9 @@ if modo == "Cámara en directo":
                             "width": "100%", "border-radius": "12px", 
                             "border": "3px solid #5C8CE6",
                             "box-shadow": "0px 4px 10px rgba(0, 0, 0, 0.2)"
-                        }
+                        },
+                        "playsinline": True,
+                        "autoplay": True
                     }
                 )
 
