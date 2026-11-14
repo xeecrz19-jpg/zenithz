@@ -845,4 +845,5 @@ st.info(
     "Mide la altura aislando matemáticamente el desplazamiento puro del centro de masa, "
     "proyectando una grilla espacial en pantalla calibrada a la estatura del sujeto."
 )
-st.caption("zenithz | Herramienta de Ciencias del Deporte") 
+st.caption("zenithz | Herramienta de Ciencias del Deporte")
+
