@@ -1,8 +1,10 @@
 streamlit
+streamlit-webrtc
 opencv-python-headless
+mediapipe==0.10.21
+numpy<2
 pandas
-mediapipe
 plotly
 fpdf
-streamlit-webrtc
 av
+imageio-ffmpeg
